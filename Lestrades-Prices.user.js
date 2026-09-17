@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name			Lestrade's Prices
+// @name			Lestrade's Prices Experiment
 // @namespace		https://lestrades.com
-// @version			1.09
+// @version			1.10
 // @description 	Integrates GG.Deals prices on Lestrades.com with caching, rate limiting and one-click price lookups.
 // @match			https://lestrades.com/*
 // @match			https://gg.deals/*
@@ -13,10 +13,10 @@
 // @grant			GM_registerMenuCommand
 // @grant			GM_addStyle
 // @run-at			document-end
-// @homepageURL		https://github.com/Nao/Lestrades-Prices/
+// @homepageURL		https://github.com/ZennyFZ/Lestrades-Prices-Experiment
 // @supportURL		https://lestrades.com/general/358/script-help-retrieve-gg-deals-prices/
-// @downloadURL		https://github.com/Nao/Lestrades-Prices/raw/refs/heads/main/Lestrades-Prices.user.js
-// @updateURL		https://github.com/Nao/Lestrades-Prices/raw/refs/heads/main/Lestrades-Prices.user.js
+// @downloadURL		https://github.com/ZennyFZ/Lestrades-Prices-Experiment/raw/refs/heads/main/Lestrades-Prices.user.js
+// @updateURL		https://github.com/ZennyFZ/Lestrades-Prices-Experiment/raw/refs/heads/main/Lestrades-Prices.user.js
 // ==/UserScript==
 
 // Original author: MrAwesomeFalcon
@@ -214,6 +214,9 @@
     } else {
       prepared.headers = { ...(prepared.headers || {}), Cookie: cookieHeader };
     }
+
+    //Dont remove this line or else the script for Violentmonkey on Firefox will be broken!!
+    //Firefox cookie behaviour is different from Chrome
     if (/violentmonkey/i.test(scriptHandler) && isFirefox) {
       prepared.anonymous = true;
     }
@@ -603,7 +606,7 @@
     );
   }
 
-  // Get currency + lowest price among all official & keyshop entries with a Steam DRM.
+  // Get currency + selected price for the requested DRM; Steam keys outrank Altergift offers.
   async function getPricesFromDOM(doc, drm, txt) {
     drm = drm || "steam";
     const currency = txt.match('"priceCurrency":"([^"]+)"');
@@ -638,11 +641,22 @@
     } catch (e) {
       console.log(e.error, purl);
     }
-    // GG prices always have 2 decimal digits, so just remove all non-digit chars, giving us a price in cents, and keep the smallest result!
+    const officialPrices = Array.from(p1);
+    const keyshopPrices = Array.from(p2);
+    let candidatePrices = officialPrices.concat(keyshopPrices);
+
+    if (drm.toLowerCase() === "steam") {
+      // GG.Deals Steam keyshops expose only Key or Altergift offers.
+      const steamKeyPrices = keyshopPrices.filter((el) => {
+        const offer = el.closest(".similar-deals-container");
+        return !/\baltergift\b/i.test(offer?.textContent || "");
+      });
+      if (steamKeyPrices.length) candidatePrices = steamKeyPrices;
+    }
+
+    // GG prices always have 2 decimal digits, so remove all non-digit chars to get cents.
     const price = Math.min(
-      ...Array.from(Array.from(p1).concat(Array.from(p2))).map((el) =>
-        el.textContent.replace(/[^\d]/g, ""),
-      ),
+      ...candidatePrices.map((el) => el.textContent.replace(/[^\d]/g, "")),
     );
     if (/\d+/.test(price)) return (currency[1] || "LTS") + "|" + price;
     return PRICE_EMPTY;
